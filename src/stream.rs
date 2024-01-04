@@ -2,6 +2,8 @@ use std::net::{TcpStream, ToSocketAddrs};
 
 use crate::shake::{perform_handshake, Handshake};
 
+
+#[derive(Debug)]
 pub struct Stream {
     pub tcp_stream: TcpStream,
     pub handshaken: Handshake,

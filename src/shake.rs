@@ -8,6 +8,8 @@ use openssl::{
     rsa::Rsa,
 };
 
+use crate::bufferable::Bufferable;
+
 /// A Shake is required to establish a mutually secured encrypted connection
 /// with the client and server.
 ///
@@ -15,14 +17,14 @@ use openssl::{
 /// If a HandShake is not initialized between both parties the communication will not be secure.  
 ///
 /// The data can only be a maximum of
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Shake {
     pub data: Vec<u8>,
     pub public_key: PKey<Public>,
 }
 
-impl Shake {
-    pub fn to_buffer(mut self) -> Vec<u8> {
+impl Bufferable for Shake {
+    fn to_buffer(mut self) -> Vec<u8> {
         let mut buffer = vec![];
 
         let mut public_key_bytes = self.public_key.public_key_to_pem().unwrap();
@@ -40,6 +42,17 @@ impl Shake {
         buffer
     }
 
+    fn from_stream(stream: &mut TcpStream) -> Self {
+        let public_key_pem = Self::read_public_key(stream);
+        let public_key =
+            PKey::public_key_from_pem(&public_key_pem).expect("expected valid public key pem");
+        let data = Self::read_data(stream);
+
+        Self { data, public_key }
+    }
+}
+
+impl Shake {
     fn read_public_key(stream: &mut TcpStream) -> Vec<u8> {
         let mut public_key_size_u8_group = [0; 3];
         stream
@@ -64,19 +77,11 @@ impl Shake {
         stream.read(&mut data).expect("expected to read data");
         data
     }
-
-    pub fn from_stream(stream: &mut TcpStream) -> Self {
-        let public_key_pem = Self::read_public_key(stream);
-        let public_key =
-            PKey::public_key_from_pem(&public_key_pem).expect("expected valid public key pem");
-        let data = Self::read_data(stream);
-
-        Self { data, public_key }
-    }
 }
 
 /// After the shake is received by both parties and is validated it will
 /// be recognized and public keys will be store for further use
+#[derive(Debug)]
 pub enum Handshake {
     /// A secure handshake which includes its corresponding Private key
     /// and the clients public key for secure communications  
@@ -132,10 +137,20 @@ fn u8_group_to_vec((u8_1, u8_2, u8_3): (u8, u8, u8)) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use crate::shake::{recompute_u16_from_u8_group, u16_to_u8_group, u8_group_to_vec};
+    use openssl::{pkey::PKey, rsa::Rsa};
+    use std::{
+        io::Write,
+        net::{TcpListener, TcpStream},
+    };
+
+    use crate::{
+        bufferable::Bufferable,
+        shake::{recompute_u16_from_u8_group, u16_to_u8_group, u8_group_to_vec, Handshake, Shake},
+        stream::Stream,
+    };
 
     #[test]
-    pub fn test_u16_to_u8() {
+    fn test_u16_to_u8() {
         assert_eq!(u16_to_u8_group(100), (100, 0, 100));
         assert_eq!(u16_to_u8_group(400), (255, 1, 145));
         assert_eq!(u16_to_u8_group(500), (255, 1, 245));
@@ -145,7 +160,7 @@ mod tests {
     }
 
     #[test]
-    pub fn test_u8_group_reconstruct() {
+    fn test_u8_group_reconstruct() {
         assert_eq!(
             recompute_u16_from_u8_group(u8_group_to_vec(u16_to_u8_group(100))),
             100
@@ -169,6 +184,92 @@ mod tests {
         assert_eq!(
             recompute_u16_from_u8_group(u8_group_to_vec(u16_to_u8_group(7000))),
             7000
+        );
+    }
+
+    #[test]
+    fn write_read_and_perform_handshake_stream() {
+        let server = TcpListener::bind("127.0.0.1:4645").unwrap();
+
+        let client_tcp_stream = TcpStream::connect("127.0.0.1:4645").unwrap();
+        let (server_tcp_stream, _) = server.accept().unwrap();
+
+        let mut client_stream = Stream {
+            handshaken: Handshake::UNSHAKEN,
+            tcp_stream: client_tcp_stream,
+        };
+
+        let mut server_stream = Stream {
+            handshaken: Handshake::UNSHAKEN,
+            tcp_stream: server_tcp_stream,
+        };
+
+        let client_data = "Hello I'm the client";
+        let server_data = "Hello I'm the server";
+
+        let client_key = Rsa::generate(2048).unwrap();
+        let server_key = Rsa::generate(2048).unwrap();
+
+        let client_public_key =
+            PKey::public_key_from_pem(&client_key.public_key_to_pem().unwrap()).unwrap();
+        let server_public_key =
+            PKey::public_key_from_pem(&server_key.public_key_to_pem().unwrap()).unwrap();
+
+        let client_shake = Shake {
+            data: String::from(client_data).as_bytes().to_vec(),
+            public_key: client_public_key.clone(),
+        };
+
+        let server_shake = Shake {
+            data: String::from(server_data).as_bytes().to_vec(),
+            public_key: server_public_key.clone(),
+        };
+
+        client_stream
+            .tcp_stream
+            .write(&client_shake.clone().to_buffer())
+            .unwrap();
+
+        server_stream
+            .tcp_stream
+            .write(&server_shake.clone().to_buffer())
+            .unwrap();
+
+        // Data transmitted from client
+        let shake_from_client = Shake::from_stream(&mut server_stream.tcp_stream);
+        // Data transmitted from server
+        let shake_from_server = Shake::from_stream(&mut client_stream.tcp_stream);
+
+        let shake_from_client_data_string =
+            String::from_utf8_lossy(&shake_from_client.data).to_string();
+        let shake_from_server_data_string =
+            String::from_utf8_lossy(&shake_from_server.data).to_string();
+
+        let shake_from_client_public_key = shake_from_client.public_key.clone();
+        let shake_from_server_public_key = shake_from_server.public_key.clone();
+
+        client_stream.handshaken = Handshake::SHAKEN(shake_from_server, client_key);
+        server_stream.handshaken = Handshake::SHAKEN(shake_from_client, server_key);
+
+        /*
+            checks whether the server and client received the
+            correct message which they sent to each other.
+        */
+        assert_eq!(String::from(client_data), shake_from_client_data_string);
+        assert_eq!(String::from(server_data), shake_from_server_data_string);
+
+        /*
+            checks whether the server and client received the correct message
+            which they sent to each other, validating they are accure is important
+            to ensure encryption will be perform with the correct keys.
+        */
+        assert_eq!(
+            shake_from_client_public_key.public_key_to_pem().unwrap(),
+            client_public_key.public_key_to_pem().unwrap()
+        );
+        assert_eq!(
+            shake_from_server_public_key.public_key_to_pem().unwrap(),
+            server_public_key.public_key_to_pem().unwrap()
         );
     }
 }

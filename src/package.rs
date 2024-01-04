@@ -1,11 +1,27 @@
 
 use uuid::Uuid;
 
+use crate::bufferable::Bufferable;
+
 /// pieces of data which can contain upto 16384 bytes of data
 #[derive(Debug, Clone)]
 pub struct Package {    
     pub uuid: Uuid,
     pub data: Vec<u8>
+}
+
+impl Package {
+
+}
+
+impl Bufferable for Package {
+    fn from_stream(tcp_stream: &mut std::net::TcpStream) -> Self {
+
+    }
+
+    fn to_buffer(self) -> Vec<u8> {
+        
+    }
 }
 
 /// A collection of packages which is ensured to be received 
