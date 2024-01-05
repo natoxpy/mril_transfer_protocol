@@ -9,6 +9,8 @@ use openssl::{
 };
 
 use crate::bufferable::Bufferable;
+// use crate::utils::{recompute_u16_from_u8_group, u16_to_u8_group, u8_group_to_vec};
+use crate::utils::macros::{u8_bytes_to_usize, usize_to_u8_bytes};
 
 /// A Shake is required to establish a mutually secured encrypted connection
 /// with the client and server.
@@ -26,17 +28,15 @@ pub struct Shake {
 impl Bufferable for Shake {
     fn to_buffer(mut self) -> Vec<u8> {
         let mut buffer = vec![];
-
         let mut public_key_bytes = self.public_key.public_key_to_pem().unwrap();
 
-        buffer.append(&mut u8_group_to_vec(u16_to_u8_group(
-            public_key_bytes.len() as u16,
-        )));
+        let mut public_key_bytes_length = usize_to_u8_bytes!(public_key_bytes.len(); 3).to_vec();
+        let mut data_length = usize_to_u8_bytes!(self.data.len(); 3).to_vec();
+
+        buffer.append(&mut public_key_bytes_length);
         buffer.append(&mut public_key_bytes);
 
-        buffer.append(&mut u8_group_to_vec(
-            u16_to_u8_group(self.data.len() as u16),
-        ));
+        buffer.append(&mut data_length);
         buffer.append(&mut self.data);
 
         buffer
@@ -59,8 +59,8 @@ impl Shake {
             .read(&mut public_key_size_u8_group)
             .expect("expected to read public key size u8 group");
 
-        let mut public_key =
-            vec![0; recompute_u16_from_u8_group(public_key_size_u8_group.to_vec()) as usize];
+        let mut public_key = vec![0; u8_bytes_to_usize!(public_key_size_u8_group)];
+
         stream
             .read(&mut public_key)
             .expect("expected to read public key");
@@ -69,12 +69,15 @@ impl Shake {
 
     fn read_data(stream: &mut TcpStream) -> Vec<u8> {
         let mut data_size_u8_group = [0; 3];
+
         stream
             .read(&mut data_size_u8_group)
             .expect("expected to read data size u8 group");
 
-        let mut data = vec![0; recompute_u16_from_u8_group(data_size_u8_group.to_vec()) as usize];
+        let mut data = vec![0; u8_bytes_to_usize!(data_size_u8_group)];
+
         stream.read(&mut data).expect("expected to read data");
+
         data
     }
 }
@@ -107,102 +110,20 @@ pub fn perform_handshake(stream: &mut TcpStream) -> Handshake {
     Handshake::SHAKEN(Shake::from_stream(stream), key)
 }
 
-/// Turns u16 sizes into 3 u8 sizes.
-/// The head (1) contains the first values from 0 - 256, after that it no longer increases
-/// The multiple (2) contains the amount of times you can multiply times the head
-/// The leftover contains the numbers between 0 - 256 that remain to complete the u16 original value
-fn u16_to_u8_group(num_u16: u16) -> (u8, u8, u8) {
-    let target_size = u16::pow(2, 8) - 1;
-
-    // Always stay between 0 - 255
-    let head = u16::min(target_size, num_u16) as u8;
-    let multiples = (num_u16 as f32 / target_size as f32).floor() as u8;
-    let leftover = (num_u16 % target_size) as u8;
-
-    (head, multiples, leftover)
-}
-
-fn recompute_u16_from_u8_group(nums: Vec<u8>) -> u16 {
-    let head = *nums.get(0).expect("u8 group head") as u16;
-    let multiple = *nums.get(1).expect("u8 multiple head") as u16;
-    let leftover = *nums.get(2).expect("u8 group head") as u16;
-
-    head * multiple + leftover
-}
-
-/// makes it easier to append to a buffer  
-fn u8_group_to_vec((u8_1, u8_2, u8_3): (u8, u8, u8)) -> Vec<u8> {
-    vec![u8_1, u8_2, u8_3]
-}
-
 #[cfg(test)]
 mod tests {
     use openssl::{pkey::PKey, rsa::Rsa};
-    use std::{
-        io::Write,
-        net::{TcpListener, TcpStream},
-    };
+    use std::io::Write;
 
     use crate::{
         bufferable::Bufferable,
-        shake::{recompute_u16_from_u8_group, u16_to_u8_group, u8_group_to_vec, Handshake, Shake},
-        stream::Stream,
+        shake::{Handshake, Shake},
     };
 
     #[test]
-    fn test_u16_to_u8() {
-        assert_eq!(u16_to_u8_group(100), (100, 0, 100));
-        assert_eq!(u16_to_u8_group(400), (255, 1, 145));
-        assert_eq!(u16_to_u8_group(500), (255, 1, 245));
-        assert_eq!(u16_to_u8_group(600), (255, 2, 90));
-        assert_eq!(u16_to_u8_group(700), (255, 2, 190));
-        assert_eq!(u16_to_u8_group(7000), (255, 27, 115));
-    }
-
-    #[test]
-    fn test_u8_group_reconstruct() {
-        assert_eq!(
-            recompute_u16_from_u8_group(u8_group_to_vec(u16_to_u8_group(100))),
-            100
-        );
-        assert_eq!(
-            recompute_u16_from_u8_group(u8_group_to_vec(u16_to_u8_group(400))),
-            400
-        );
-        assert_eq!(
-            recompute_u16_from_u8_group(u8_group_to_vec(u16_to_u8_group(500))),
-            500
-        );
-        assert_eq!(
-            recompute_u16_from_u8_group(u8_group_to_vec(u16_to_u8_group(600))),
-            600
-        );
-        assert_eq!(
-            recompute_u16_from_u8_group(u8_group_to_vec(u16_to_u8_group(700))),
-            700
-        );
-        assert_eq!(
-            recompute_u16_from_u8_group(u8_group_to_vec(u16_to_u8_group(7000))),
-            7000
-        );
-    }
-
-    #[test]
     fn write_read_and_perform_handshake_stream() {
-        let server = TcpListener::bind("127.0.0.1:4645").unwrap();
-
-        let client_tcp_stream = TcpStream::connect("127.0.0.1:4645").unwrap();
-        let (server_tcp_stream, _) = server.accept().unwrap();
-
-        let mut client_stream = Stream {
-            handshaken: Handshake::UNSHAKEN,
-            tcp_stream: client_tcp_stream,
-        };
-
-        let mut server_stream = Stream {
-            handshaken: Handshake::UNSHAKEN,
-            tcp_stream: server_tcp_stream,
-        };
+        let (mut server_stream, mut client_stream) =
+            crate::tests::stablish_server_client_connection().split();
 
         let client_data = "Hello I'm the client";
         let server_data = "Hello I'm the server";

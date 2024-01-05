@@ -7,4 +7,5 @@ description = "MBCP (Mril Transfer Protocol (MTP) "
 
 [dependencies]
 openssl = "0.10.62"
-uuid = "1.6.1"
+rand = "0.8.5"
+uuid = { version = "1.6.1", features = ["v4"]}
