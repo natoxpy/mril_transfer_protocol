@@ -15,7 +15,7 @@ pub mod macros {
             if $bytes.len() < 2 {
                 panic!("Bytes passes must be at least length 2 or more");
             }
-
+  
             let number = usize::from($num);
             let max_number = usize::pow(2, 8);
 

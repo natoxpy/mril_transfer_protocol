@@ -1,3 +1,5 @@
+use std::{net::TcpStream, io::Read};
+
 use rand::Rng;
 use uuid::Uuid;
 
@@ -14,6 +16,7 @@ pub mod encryption {
     pub const ENCRYPTED: u8 = 1;
 }
 
+/// 
 pub fn new_uuid(
     item_number: usize,
     free_data: Vec<u8>,
@@ -40,4 +43,12 @@ pub fn new_uuid(
     bytes[15] = encrypted;
 
     Uuid::from_bytes(bytes)
+}
+
+pub fn get_uuid_from_tcp_stream(tcp_stream: &mut TcpStream) -> Uuid {
+    let mut uuid_bytes = [0; 16];
+
+    tcp_stream.read(&mut uuid_bytes).expect("Expected UUID from tcp stream");
+
+    Uuid::from_bytes(uuid_bytes)
 }

@@ -115,4 +115,13 @@ mod tests {
         assert_eq!(package.meta_uuid, client_package.meta_uuid);
         assert_eq!(package.data, client_package.data);
     }
+
+    #[test]
+    fn test_vec_split() {
+        let max_val = 10;
+
+        let data = b"Hello I believe that this will split properly and I will be able to implement the proper person";
+
+        
+    }
 }
