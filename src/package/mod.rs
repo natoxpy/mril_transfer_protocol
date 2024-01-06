@@ -10,8 +10,40 @@ use crate::{
     utils::{macros::u8_bytes_to_usize, macros::usize_to_u8_bytes},
 };
 
+/// - tiny: `2^4 - 1`
+/// - small: `2^8 - 1`
+/// - medium: `2^12 - 1`
+/// - large: `2^16 - 1`
+/// - max: `2^24 - 1`
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum PackageSize {
+    /// `15 bytes`
+    TINY,
+    /// `255 bytes`
+    SMALL,
+    /// `4095 bytes`
+    #[default]
+    MEDIUM,
+    /// `65535 bytes`
+    LARGE,
+    // `16777215 bytes`
+    MAX, 
+}
+
+impl PackageSize {
+    pub fn get_value(&self) -> usize {
+        (match self {
+            Self::TINY => usize::pow(2, 4),
+            Self::SMALL => usize::pow(2, 8),
+            Self::MEDIUM => usize::pow(2, 12),
+            Self::LARGE => usize::pow(2, 16),
+            Self::MAX => usize::pow(2, 24),
+        } - 1)
+    }
+}
+
 /// pieces of data which can contain upto 65535 (0.5MB) bytes of data
-/// 
+///
 #[derive(Debug, Clone, PartialEq)]
 pub struct Package {
     /// UUID Explains
@@ -21,7 +53,6 @@ pub struct Package {
     /// - Before last (14); type marker; `0 -> handshake, 1 -> Package`
     /// - Last byte (15); `encrypted -> 1 / not encrypted -> 0` mark
     pub meta_uuid: Uuid,
-    /// Max data allowed; 2^16 - 1
     pub data: Vec<u8>,
 }
 
@@ -40,6 +71,11 @@ impl Package {
         Uuid::from_bytes(uuid_bytes)
     }
 
+    /// maximum data length is `2^24 - 1` because the 
+    /// data_length header is only 3 bytes long
+    ///  
+    /// How is calculated:
+    /// `255 * 256` + `255 * 256 ^ 2` + `255` = `16777215` or `2^24 - 1`
     fn read_data(tcp_stream: &mut std::net::TcpStream) -> Vec<u8> {
         let mut data_length_bytes = [0; 3];
         tcp_stream
@@ -114,14 +150,5 @@ mod tests {
 
         assert_eq!(package.meta_uuid, client_package.meta_uuid);
         assert_eq!(package.data, client_package.data);
-    }
-
-    #[test]
-    fn test_vec_split() {
-        let max_val = 10;
-
-        let data = b"Hello I believe that this will split properly and I will be able to implement the proper person";
-
-        
     }
 }

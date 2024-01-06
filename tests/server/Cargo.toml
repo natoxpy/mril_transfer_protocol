@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 mril_transfer_protocol = { path = "../../" }
+rand = "0.8.5"
