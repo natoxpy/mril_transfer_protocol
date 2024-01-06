@@ -36,25 +36,30 @@ use std::{fs, net::TcpStream};
 // }
 
 fn main() {
-    let tcp_stream = TcpStream::connect("127.0.0.1:3400").expect("expected connection");
-    let mut stream = Stream {
-        handshaken: Handshake::UNSHAKEN,
-        tcp_stream,
-    };
 
-    let mut a = 100;
+
+    let mut a = 0;
     loop {
-        if a > 100 {
+        a += 1;
+
+        if a > 1000 {
             break;
         }
-        a += 1;
     
-        let bytes = fs::read("./music_file.flac").unwrap();
+        let tcp_stream = TcpStream::connect("127.0.0.1:3400").expect("expected connection");
+        let mut stream = Stream {
+            handshaken: Handshake::UNSHAKEN,
+            tcp_stream,
+        };
+
+        let bytes = fs::read("./music.flac").unwrap();
         let mut packages = Packages::new(bytes);
     
         packages.set_package_size(PackageSize::LARGE);
         packages.set_report_speed(PackageReportSpeed::FASTEST);
-        packages.set_batch_size(PackagesBatchSize::LARGE);
+        packages.set_batch_size(PackagesBatchSize::MAX);
+
+        println!("A: {}", a);
     
         // packages.listen_reports(|report| {
         //     // println!("\n\n[client]: {:?}", report);

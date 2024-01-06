@@ -5,8 +5,10 @@ use mril_transfer_protocol::{package::packages::Packages, shake::Handshake, stre
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:3400").expect("Tcp listener");
     println!("Listening on port 3400");
+    let mut t = 0;
 
     loop {
+        t += 1;
         let (tcp_stream, _) = listener.accept().expect("Tcp stream");
         // mril_transfer_protocol::stream::Stream::connect_stream(tcp_stream);
         let mut stream = Stream {
@@ -18,11 +20,13 @@ fn main() {
 
         let packages = Packages::read_from(&mut stream.tcp_stream);
 
-        println!("\n\n[server]: received {:?} bytes", packages.data.len());
+        assert_eq!(packages.data.len(), 112591267);
+
+        // println!("[server]: received {:?} bytes", packages.data.len());
 
         fs::write("music.flac", packages.data).unwrap();
         
-        println!("\n\n time taken {:?}", now.elapsed());
+        println!("time taken {:?} : {}", now.elapsed(), t);
     }
 }
 

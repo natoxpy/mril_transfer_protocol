@@ -166,6 +166,8 @@ impl Packages {
 
         let mut batch_count: usize = 0;
 
+        // println!("sending batch {}", self.batch_size.to_value());
+
         tcp_stream
             .write(&[self.batch_size.to_value()])
             .expect("Expected to write batch size");
@@ -177,30 +179,32 @@ impl Packages {
 
             let mut buffer = package.clone().to_buffer();
 
-            if i == packages.len() {
+            if i >= packages.len() - 1 {
                 buffer.push(0);
             } else {
                 buffer.push(1);
             }
+
+            // println!("{:?}", buffer);
 
             tcp_stream
                 .write(&buffer)
                 .expect("Expected to be able to write to stream");
 
             // println!("batch track {}", batch_count % self.batch_size.to_value() as usize);
-            // if batch_count % self.batch_size.to_value() as usize == 0 {
-            //     println!(
-            //         "Writing Batch Size affirmation : {} {} - {}",
-            //         batch_count,
-            //         self.batch_size.to_value() as usize,
-            //         batch_count % self.batch_size.to_value() as usize
-            //     );
-            //     let mut response = [0; 1];
-            //     tcp_stream
-            //         .read(&mut response)
-            //         .expect("Expected to read response");
-            //     // println!("Server response {:?}", response);
-            // }
+            if batch_count % self.batch_size.to_value() as usize == 0 {
+                // println!(
+                //     "Writing Batch Size affirmation : {} {} - {}",
+                //     batch_count,
+                //     self.batch_size.to_value() as usize,
+                //     batch_count % self.batch_size.to_value() as usize
+                // );
+                let mut response = [0; 1];
+                tcp_stream
+                    .read(&mut response)
+                    .expect("Expected to read response");
+                // println!("Server response {:?}", response);
+            }
 
             sent += 1;
 
@@ -216,13 +220,16 @@ impl Packages {
             }
         }
 
-        println!("pre exit response ");
-        // let mut response = [0; 1];
-        // tcp_stream
-        //     .read(&mut response)
-        //     .expect("Expected to read response");
+        // println!("pre exit response ");
 
-        println!("exited");
+        let mut response = [0; 1];
+        tcp_stream
+            .read(&mut response)
+            .expect("Expected to read response");
+
+        // println!("total data writen {}", bytes_sent);
+
+        // println!("exited");
         if self.reports_callback.is_some() {
             self.reports_callback.unwrap()(PackagesReport {
                 bytes_sent,
@@ -249,7 +256,7 @@ impl Packages {
             let mut package = Package::from_stream(tcp_stream);
             batch_count += 1;
 
-            let data_length = package.data.len();
+            // let data_length = package.data.len();
 
             packages.data.append(&mut package.data);
 
@@ -259,33 +266,35 @@ impl Packages {
                 .read(&mut footer_byte)
                 .expect("Expected to be able to read from stream");
 
-            println!(
-                "- Regular : {} {} - {} : {} / {}",
-                batch_count,
-                batch_size.to_value() as usize,
-                batch_count % batch_size.to_value() as usize,
-                data_length,
-                packages.data.len()
-            );
-            // if batch_count % batch_size.to_value() as usize == 0 {
-            //     // println!("Batch counted {}", batch_count);
-            //     println!(
-            //         "Writing Batch Size affirmation : {} {} - {}",
-            //         batch_count,
-            //         batch_size.to_value() as usize,
-            //         batch_count % batch_size.to_value() as usize
-            //     );
-            //     tcp_stream
-            //         .write(&[0])
-            //         .expect("Expected to be able to write to stream");
-            // }
+            // println!(
+            //     "- Regular : {} {} - {} : {} / {}",
+            //     batch_count,
+            //     batch_size.to_value() as usize,
+            //     batch_count % batch_size.to_value() as usize,
+            //     data_length,
+            //     packages.data.len()
+            // );
 
-            // println!("\n\nfooter byte {:?}", footer_byte);
+            if batch_count % batch_size.to_value() as usize == 0 {
+                // println!("Batch counted {}", batch_count);
+                // println!(
+                //     "Writing Batch Size affirmation : {} {} - {}",
+                //     batch_count,
+                //     batch_size.to_value() as usize,
+                //     batch_count % batch_size.to_value() as usize
+                // );
+                tcp_stream
+                    .write(&[0])
+                    .expect("Expected to be able to write to stream");
+            }
+
+            // println!("footer byte {:?}", footer_byte);
             if footer_byte[0] == 0 {
                 break;
             }
         }
 
+        // println!("Writing exit response");
         tcp_stream.write(&[0]).unwrap();
 
         packages

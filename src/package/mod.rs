@@ -27,7 +27,7 @@ pub enum PackageSize {
     /// `65535 bytes`
     LARGE,
     // `16777215 bytes`
-    MAX, 
+    MAX,
 }
 
 impl PackageSize {
@@ -71,7 +71,33 @@ impl Package {
         Uuid::from_bytes(uuid_bytes)
     }
 
-    /// maximum data length is `2^24 - 1` because the 
+    fn read_missing(
+        tcp_stream: &mut std::net::TcpStream,
+        missing_length: usize,
+        total_size: usize,
+    ) -> Vec<u8> {
+        let mut data = vec![0; missing_length];
+
+        let length_read = tcp_stream
+            .read(&mut data)
+            .expect("Expected to read more missing data");
+
+        if missing_length - length_read == 0 {
+            data
+        } else {
+            if missing_length - length_read > 0 {
+                panic!(
+                    "Overread data {} - {}",
+                    missing_length - length_read,
+                    length_read
+                );
+            }
+
+            Self::read_missing(tcp_stream, length_read - missing_length, total_size)
+        }
+    }
+
+    /// maximum data length is `2^24 - 1` because the
     /// data_length header is only 3 bytes long
     ///  
     /// How is calculated:
@@ -85,9 +111,23 @@ impl Package {
         let data_length = u8_bytes_to_usize!(data_length_bytes);
 
         let mut data_bytes = vec![0; data_length];
-        tcp_stream
+        let data_read_length = tcp_stream
             .read(&mut data_bytes)
             .expect("Expected data bytes");
+
+        if data_read_length == data_length {
+        } else {
+            // println!("Missing data {}", data_length - data_read_length);
+            // println!("--- ERROR - NO ENOUGH DATA READ : {}", data_read_length);
+
+            data_bytes.truncate(data_read_length);
+
+            data_bytes.append(&mut Self::read_missing(
+                tcp_stream,
+                data_length - data_read_length,
+                data_length,
+            ));
+        }
 
         data_bytes
     }
